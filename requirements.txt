@@ -4,3 +4,5 @@ gunicorn
 werkzeug
 python-dotenv
 pytest
+flask-compress
+google-cloud-logging
