@@ -187,6 +187,8 @@ def create_app() -> Flask:
 
     @app.errorhandler(Exception)
     def handle_general_exception(e) -> Tuple[Response, int]:
+        if isinstance(e, RequestEntityTooLarge):
+            return handle_file_too_large(e)
         logging.exception(f"Unhandled Exception: {e}")
         return jsonify({"error": "Secure internal server error."}), 500
 
