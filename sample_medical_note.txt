@@ -1,0 +1,27 @@
+PATIENT INTAKE NOTE
+Name: Emily R. Chen
+DOB: 04/12/1985
+Date of Visit: Oct 24, 2026
+
+History of Present Illness:
+Pt is a 41yo female presenting to the ER with complaints of shortness of breath and wheezing which started abruptly about 2 hours ago. She reports having dinner at a seafood restaurant prior to onset. Mild hives noted on her arms. 
+
+Allergies:
+- Severe shellfish allergy (anaphylaxis - carries EpiPen but forgot it today)
+- Penicillin (causes mild rash)
+- Latex 
+
+Current Home Medications:
+- Levothyroxine 75 mcg PO daily for hypothyroidism
+- Albuterol inhaler 2 puffs PRN for mild asthma
+- Sertraline 50mg daily
+
+Vitals:
+BP: 110/70, HR: 115 bpm, O2 Sat: 92% on room air, Temp: 98.6F
+
+Assessment & Plan:
+1. Acute allergic reaction / anaphylaxis vs asthma exacerbation. Given the shellfish exposure and hives, highly suspicious for anaphylactic reaction. 
+EMERGENCY ACTION: Administer Epinephrine 0.3mg IM immediately! 
+2. Start IV fluids and give Diphenhydramine 50mg IV.
+3. Monitor oxygen saturation closely and prepare for possible intubation if airway swelling worsens.
+4. Pt has blood type AB+ on file from previous surgery in 2021.

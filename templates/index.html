@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MediBridge - AI Medical Information Extractor</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Use FontAwesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- html2pdf for PDF generation -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        medical: {
+                            50: '#f0f9ff',
+                            100: '#e0f2fe',
+                            500: '#0ea5e9',
+                            600: '#0284c7',
+                            900: '#0c4a6e',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Print styles for the medical card */
+        @media print {
+            body * {
+                visibility: hidden;
+            }
+            #medical-card, #medical-card * {
+                visibility: visible;
+            }
+            #medical-card {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100%;
+                box-shadow: none;
+                border: none;
+                padding: 0;
+            }
+            .no-print {
+                display: none !important;
+            }
+        }
+        
+        .drag-active {
+            border-color: #0ea5e9;
+            background-color: #f0f9ff;
+        }
+
+        /* Glassmorphism for modern feel */
+        .glass-card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen font-sans flex flex-col">
+
+    <!-- Header / Hero Section -->
+    <header class="bg-medical-900 text-white shadow-md rounded-b-3xl">
+        <div class="max-w-5xl mx-auto px-6 py-12 md:py-16 text-center">
+            <h1 class="text-4xl md:text-5xl font-extrabold mb-4 tracking-tight">
+                <i class="fa-solid fa-notes-medical text-medical-500 mr-3"></i>MediBridge
+            </h1>
+            <p class="text-lg md:text-xl text-medical-50 max-w-2xl mx-auto leading-relaxed">
+                Transform unstructured medical documents—photos of prescriptions, doctor's notes, or lab reports—into clean, structured emergency medical information instantly using AI.
+            </p>
+        </div>
+    </header>
+
+    <main class="flex-grow max-w-5xl mx-auto w-full px-4 py-8 md:py-12 flex flex-col gap-8">
+        
+        <!-- Input Section -->
+        <section class="glass-card rounded-2xl shadow-xl p-6 md:p-8" aria-labelledby="input-heading">
+            <h2 id="input-heading" class="text-2xl font-bold mb-6 text-medical-900 border-b pb-2">Medical Input</h2>
+            
+            <form id="upload-form" class="space-y-6">
+                <!-- File Upload Box -->
+                <div>
+                    <label class="block text-sm font-semibold text-slate-700 mb-2" for="file-upload">Upload Document Image (Prescription, Labs, Notes)</label>
+                    <div id="drop-zone" class="relative border-3 border-dashed border-slate-300 rounded-xl p-8 flex flex-col items-center justify-center bg-slate-50 transition-colors cursor-pointer hover:bg-slate-100 group" tabindex="0" aria-label="File upload drop zone">
+                        <input type="file" id="file-upload" name="file" accept="image/png, image/jpeg, image/jpg, image/webp, image/heic" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" aria-hidden="true" title="File Upload">
+                        <i class="fa-solid fa-cloud-arrow-up text-4xl text-slate-400 mb-3 group-hover:text-medical-500 transition-colors"></i>
+                        <p class="text-slate-600 font-medium text-center">Drag and drop an image here, or <span class="text-medical-600 underline">click to browse</span></p>
+                        <p class="text-xs text-slate-400 mt-2">Supports JPG, PNG, WEBP. Max size: 10MB</p>
+                        <p id="file-name" class="mt-4 text-sm font-bold text-medical-600 hidden"></p>
+                    </div>
+                </div>
+
+                <div class="relative flex items-center py-2">
+                    <div class="flex-grow border-t border-slate-300"></div>
+                    <span class="flex-shrink-0 mx-4 text-slate-400 text-sm font-medium">OR / AND</span>
+                    <div class="flex-grow border-t border-slate-300"></div>
+                </div>
+
+                <!-- Text Area -->
+                <div>
+                    <label class="block text-sm font-semibold text-slate-700 mb-2" for="text-input">Paste unstructured medical text</label>
+                    <textarea id="text-input" name="text" rows="4" class="w-full p-4 border border-slate-300 rounded-xl focus:ring-2 focus:ring-medical-500 focus:border-medical-500 transition-shadow resize-y" placeholder="E.g., Patient takes 50mg Metoprolol daily, allergic to penicillin..."></textarea>
+                </div>
+
+                <!-- Submit Button -->
+                <button type="submit" id="submit-btn" class="w-full bg-medical-600 hover:bg-medical-500 text-white font-bold text-lg py-4 px-6 rounded-xl shadow-lg transition-transform transform hover:-translate-y-0.5 focus:outline-none focus:ring-4 focus:ring-medical-500 flex justify-center items-center">
+                    <span id="btn-text">Extract Medical Info</span>
+                    <i id="btn-icon" class="fa-solid fa-wand-magic-sparkles ml-2"></i>
+                    <i id="btn-spinner" class="fa-solid fa-circle-notch fa-spin ml-2 hidden"></i>
+                </button>
+            </form>
+            
+            <!-- Error Message Container -->
+            <div id="error-message" class="hidden mt-4 p-4 bg-red-50 text-red-700 border border-red-200 rounded-lg flex items-center">
+                <i class="fa-solid fa-triangle-exclamation mr-3 flex-shrink-0"></i>
+                <span id="error-text"></span>
+            </div>
+        </section>
+
+        <!-- Results Section (Hidden by default) -->
+        <section id="results-section" class="hidden w-full" aria-labelledby="results-heading">
+            <div class="flex flex-col sm:flex-row justify-between items-center mb-4 gap-4 no-print">
+                <h2 id="results-heading" class="text-2xl font-bold text-medical-900">Extracted Information</h2>
+                <div class="flex gap-3">
+                    <button id="copy-btn" class="flex items-center gap-2 bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 px-4 py-2 rounded-lg font-medium shadow-sm transition-colors focus:ring-2 focus:ring-medical-500" aria-label="Copy to clipboard">
+                        <i class="fa-regular fa-copy"></i> Copy Text
+                    </button>
+                    <button id="download-btn" class="flex items-center gap-2 bg-slate-800 text-white hover:bg-slate-700 px-4 py-2 rounded-lg font-medium shadow-sm transition-colors focus:ring-2 focus:ring-slate-500" aria-label="Download as PDF">
+                        <i class="fa-solid fa-download"></i> Download PDF
+                    </button>
+                </div>
+            </div>
+
+            <!-- The Medical Card -->
+            <div id="medical-card" class="bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-200">
+                <!-- Card Header -->
+                <div class="bg-medical-900 text-white p-6 border-b-4 border-medical-500 flex justify-between items-center">
+                    <div>
+                        <h3 class="font-bold text-sm uppercase tracking-wider text-medical-100 mb-1">Emergency Medical Card</h3>
+                        <div id="res-patient-name" class="text-3xl font-extrabold capitalize">Unknown Patient</div>
+                    </div>
+                    <div class="text-right">
+                        <div class="text-xs uppercase text-medical-100 mb-1 font-semibold">Blood Type</div>
+                        <div id="res-blood-type" class="text-2xl font-bold bg-white text-medical-900 px-3 py-1 rounded shadow-inner inline-block min-w-[2.5rem] text-center">N/A</div>
+                    </div>
+                </div>
+
+                <!-- Card Body -->
+                <div class="p-6 md:p-8 space-y-8">
+                    
+                    <!-- Alerts (Allergies & Emergencies) -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <!-- Allergies -->
+                        <div class="bg-red-50 rounded-xl p-5 border border-red-200 shadow-sm">
+                            <h4 class="text-red-800 font-bold text-lg mb-3 flex items-center">
+                                <i class="fa-solid fa-triangle-exclamation mr-2"></i> Known Allergies
+                            </h4>
+                            <ul id="res-allergies" class="list-disc pl-5 space-y-1 text-red-900 font-medium">
+                                <!-- Populated via JS -->
+                            </ul>
+                        </div>
+                        
+                        <!-- Emergency Actions -->
+                        <div class="bg-amber-50 rounded-xl p-5 border border-amber-200 shadow-sm">
+                            <h4 class="text-amber-800 font-bold text-lg mb-3 flex items-center">
+                                <i class="fa-solid fa-bolt mr-2"></i> Emergency Actions/Warnings
+                            </h4>
+                            <ul id="res-emergencies" class="list-disc pl-5 space-y-1 text-amber-900 font-medium">
+                                <!-- Populated via JS -->
+                            </ul>
+                        </div>
+                    </div>
+
+                    <!-- Medical Info -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <!-- Conditions -->
+                        <div>
+                            <h4 class="text-slate-800 font-bold text-lg mb-3 border-b-2 border-slate-100 pb-2">Medical Conditions</h4>
+                            <ul id="res-conditions" class="list-disc pl-5 space-y-1 text-slate-700">
+                                <!-- Populated via JS -->
+                            </ul>
+                        </div>
+
+                        <!-- Medications -->
+                        <div>
+                            <h4 class="text-slate-800 font-bold text-lg mb-3 border-b-2 border-slate-100 pb-2">Current Medications</h4>
+                            <ul id="res-medications" class="space-y-2">
+                                <!-- Populated via JS -->
+                            </ul>
+                        </div>
+                    </div>
+
+                    <!-- Summary -->
+                    <div class="mt-6">
+                        <h4 class="text-slate-800 font-bold text-lg mb-2 border-b-2 border-slate-100 pb-2">Summary</h4>
+                        <p id="res-summary" class="text-slate-700 leading-relaxed bg-slate-50 p-4 rounded-lg border border-slate-100"></p>
+                    </div>
+
+                </div>
+                
+                <div class="bg-slate-50 px-6 py-4 text-xs text-slate-500 text-center border-t border-slate-200">
+                    <i class="fa-solid fa-shield-halved mr-1"></i> Generated by MediBridge AI. This information was extracted automatically and should be verified by a medical professional.
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <footer class="bg-slate-800 text-slate-400 py-6 text-center text-sm no-print mt-auto">
+        <p>&copy; 2026 MediBridge. All rights reserved.</p>
+    </footer>
+
+    <!-- Application Script -->
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const form = document.getElementById('upload-form');
+            const fileInput = document.getElementById('file-upload');
+            const dropZone = document.getElementById('drop-zone');
+            const fileNameDisplay = document.getElementById('file-name');
+            const submitBtn = document.getElementById('submit-btn');
+            const btnText = document.getElementById('btn-text');
+            const btnIcon = document.getElementById('btn-icon');
+            const btnSpinner = document.getElementById('btn-spinner');
+            
+            const errorContainer = document.getElementById('error-message');
+            const errorText = document.getElementById('error-text');
+            const resultsSection = document.getElementById('results-section');
+
+            // Drag and Drop Logic
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                dropZone.addEventListener(eventName, preventDefaults, false);
+            });
+
+            function preventDefaults(e) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+
+            ['dragenter', 'dragover'].forEach(eventName => {
+                dropZone.addEventListener(eventName, () => {
+                    dropZone.classList.add('drag-active');
+                }, false);
+            });
+
+            ['dragleave', 'drop'].forEach(eventName => {
+                dropZone.addEventListener(eventName, () => {
+                    dropZone.classList.remove('drag-active');
+                }, false);
+            });
+
+            dropZone.addEventListener('drop', (e) => {
+                let dt = e.dataTransfer;
+                let files = dt.files;
+                if(files.length > 0) {
+                    fileInput.files = files;
+                    updateFileName(files[0].name);
+                }
+            }, false);
+
+            fileInput.addEventListener('change', (e) => {
+                if(fileInput.files.length > 0) {
+                    updateFileName(fileInput.files[0].name);
+                }
+            });
+
+            function updateFileName(name) {
+                fileNameDisplay.textContent = `Selected: ${name}`;
+                fileNameDisplay.classList.remove('hidden');
+            }
+
+            // Keyboard support for drop zone
+            dropZone.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    fileInput.click();
+                }
+            });
+
+            // Form Submit Logic
+            form.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                
+                // Reset UI
+                errorContainer.classList.add('hidden');
+                resultsSection.classList.add('hidden');
+                
+                // Set loading state
+                submitBtn.disabled = true;
+                submitBtn.classList.add('opacity-75', 'cursor-not-allowed');
+                btnText.textContent = 'Analyzing...';
+                btnIcon.classList.add('hidden');
+                btnSpinner.classList.remove('hidden');
+
+                const formData = new FormData(form);
+
+                try {
+                    const response = await fetch('/analyze', {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    let data;
+                    try {
+                        data = await response.json();
+                    } catch (err) {
+                        data = { error: "Application returned an invalid response." }
+                    }
+
+                    if (!response.ok) {
+                        throw new Error(data.error || `Server responded with status ${response.status}`);
+                    }
+
+                    // Populate and show results
+                    populateCard(data);
+                    resultsSection.classList.remove('hidden');
+                    
+                    // Scroll to results cleanly
+                    setTimeout(() => {
+                        resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }, 100);
+
+                } catch (error) {
+                    errorText.textContent = error.message;
+                    errorContainer.classList.remove('hidden');
+                } finally {
+                    // Reset loading state
+                    submitBtn.disabled = false;
+                    submitBtn.classList.remove('opacity-75', 'cursor-not-allowed');
+                    btnText.textContent = 'Extract Medical Info';
+                    btnIcon.classList.remove('hidden');
+                    btnSpinner.classList.add('hidden');
+                }
+            });
+            
+            // Populate Results Function
+            function populateCard(data) {
+                // Keep raw data attached to a hidden element or variable for copying
+                window._lastExtractedData = data;
+
+                // Patient Name
+                document.getElementById('res-patient-name').textContent = data.patient_name || 'Unknown Patient';
+                
+                // Blood Type
+                const btEl = document.getElementById('res-blood-type');
+                if (data.blood_type) {
+                    btEl.textContent = data.blood_type;
+                    btEl.classList.remove('text-medical-900', 'bg-white');
+                    btEl.classList.add('text-white', 'bg-red-600');
+                } else {
+                    btEl.textContent = 'N/A';
+                    btEl.classList.add('text-medical-900', 'bg-white');
+                    btEl.classList.remove('text-white', 'bg-red-600');
+                }
+
+                // Helper to populate lists
+                const populateList = (elementId, arrayData, emptyMsg) => {
+                    const el = document.getElementById(elementId);
+                    el.innerHTML = '';
+                    if (arrayData && arrayData.length > 0) {
+                        arrayData.forEach(item => {
+                            if (!item) return;
+                            const li = document.createElement('li');
+                            li.textContent = item;
+                            el.appendChild(li);
+                        });
+                        if (el.children.length === 0) {
+                            const li = document.createElement('li');
+                            li.textContent = emptyMsg;
+                            li.className = "text-opacity-60 italic";
+                            el.appendChild(li);
+                        }
+                    } else {
+                        const li = document.createElement('li');
+                        li.textContent = emptyMsg;
+                        li.className = "text-opacity-60 italic";
+                        el.appendChild(li);
+                    }
+                };
+
+                // Allergies
+                populateList('res-allergies', data.allergies, 'None reported');
+                
+                // Emergencies
+                populateList('res-emergencies', data.emergency_actions, 'None reported');
+                
+                // Conditions
+                populateList('res-conditions', data.conditions, 'None reported');
+
+                // Medications (special formatting)
+                const medsEl = document.getElementById('res-medications');
+                medsEl.innerHTML = '';
+                if (data.medications && data.medications.length > 0) {
+                    let added = false;
+                    data.medications.forEach(med => {
+                        if (!med || !med.name) return;
+                        added = true;
+                        const li = document.createElement('li');
+                        li.className = "flex items-start bg-white p-2 border border-slate-100 rounded shadow-sm";
+                        li.innerHTML = `
+                            <i class="fa-solid fa-pills text-medical-500 mt-1 mr-3 w-4 text-center"></i>
+                            <div>
+                                <div class="font-bold text-slate-800">${med.name}</div>
+                                <div class="text-sm text-slate-500">${med.dosage || 'Dosage not specified'}</div>
+                            </div>
+                        `;
+                        medsEl.appendChild(li);
+                    });
+                    if (!added) {
+                        medsEl.innerHTML = '<li class="text-slate-500 italic">None reported</li>';
+                    }
+                } else {
+                    medsEl.innerHTML = '<li class="text-slate-500 italic">None reported</li>';
+                }
+
+                // Summary
+                document.getElementById('res-summary').textContent = data.summary || 'No summary available.';
+            }
+
+            // Copy to Clipboard
+            document.getElementById('copy-btn').addEventListener('click', () => {
+                if (window._lastExtractedData) {
+                    const text = JSON.stringify(window._lastExtractedData, null, 2);
+                    navigator.clipboard.writeText(text).then(() => {
+                        const btn = document.getElementById('copy-btn');
+                        const originalHTML = btn.innerHTML;
+                        btn.innerHTML = '<i class="fa-solid fa-check text-green-500"></i> Copied!';
+                        setTimeout(() => {
+                            btn.innerHTML = originalHTML;
+                        }, 2000);
+                    }).catch(err => {
+                        console.error('Failed to copy', err);
+                    });
+                }
+            });
+
+            // Download as PDF
+            document.getElementById('download-btn').addEventListener('click', () => {
+                const element = document.getElementById('medical-card');
+                const opt = {
+                    margin:       0.5,
+                    filename:     'medical-card.pdf',
+                    image:        { type: 'jpeg', quality: 0.98 },
+                    html2canvas:  { scale: 2, useCORS: true },
+                    jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' }
+                };
+
+                // Add a temporary class to ensure rendering is clean
+                element.classList.add('pdf-rendering');
+                
+                html2pdf().set(opt).from(element).save().then(() => {
+                    element.classList.remove('pdf-rendering');
+                });
+            });
+        });
+    </script>
+</body>
+</html>
