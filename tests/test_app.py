@@ -37,7 +37,7 @@ def test_analyze_invalid_file_type(test_client):
     assert "File type not allowed" in data["error"]
 
 def test_analyze_success_with_text(test_client):
-    with patch('app.client') as mock_client:
+    with patch('app.genai_client') as mock_client:
         # Setup mock response
         mock_response = MagicMock()
         mock_response.text = json.dumps({
@@ -53,11 +53,11 @@ def test_analyze_success_with_text(test_client):
         # Configure the mock chain
         mock_client.models.generate_content.return_value = mock_response
         
-        # Because we're overriding global app.client, we need to temporarily mock it 
+        # Because we're overriding global app.genai_client, we need to temporarily mock it 
         # inside the app module level
         import app as my_app
-        old_client = my_app.client
-        my_app.client = mock_client
+        old_client = my_app.genai_client
+        my_app.genai_client = mock_client
         
         data = {
             'text': 'Patient Test Name is allergic to Peanuts. Blood type O-.'
@@ -66,7 +66,7 @@ def test_analyze_success_with_text(test_client):
         response = test_client.post('/analyze', data=data, content_type='multipart/form-data')
         
         # Restore client
-        my_app.client = old_client
+        my_app.genai_client = old_client
         
         assert response.status_code == 200
         res_data = response.get_json()
