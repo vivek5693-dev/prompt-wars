@@ -22,6 +22,7 @@ def test_health_check(test_client):
     data = response.get_json()
     assert data["status"] == "healthy"
     assert "services" in data
+    assert "grounding_enabled" in data["services"]
 
 def test_analyze_no_input(test_client):
     response = test_client.post('/analyze', data={})
@@ -32,20 +33,27 @@ def test_analyze_invalid_file_type(test_client):
     data = {'file': (io.BytesIO(b"dummy data"), 'test.txt')}
     response = test_client.post('/analyze', data=data, content_type='multipart/form-data')
     assert response.status_code == 400
-    assert "Invalid file type" in response.get_json()["error"]
+    assert "Invalid file format" in response.get_json()["error"]
 
-@patch('app.GeminiMedicalExtractor.analyze_contents')
-def test_analyze_success_with_text(mock_analyze, test_client):
-    # Setup mock response output correctly formatted
-    mock_analyze.return_value = {
+@patch('services.gemini_service.GeminiService.analyze_medical_contents')
+@patch('services.storage_service.StorageService.upload_file')
+def test_analyze_success_with_text(mock_storage, mock_analyze, test_client):
+    # Mock return as a MedicalExtraction object (or dict if service returns dict)
+    # The service returns MedicalExtraction object, but app.py calls .dict() on it.
+    from models.medical_data import MedicalExtraction
+    
+    mock_data = {
         "patient_name": "Test Name", 
         "blood_type": "O-", 
         "allergies": ["Peanuts"], 
         "medications": [], 
         "conditions": [], 
-        "emergency_actions": [], 
-        "summary": "Test Summary"
+        "emergency_actions": ["Call 911"], 
+        "summary": "Test Summary",
+        "is_verified": True
     }
+    mock_analyze.return_value = MedicalExtraction(**mock_data)
+    mock_storage.return_value = "gs://mock/path"
     
     data = {
         'text': 'Patient Test Name is allergic to Peanuts. Blood type O-.'
@@ -57,6 +65,7 @@ def test_analyze_success_with_text(mock_analyze, test_client):
     res_data = response.get_json()
     assert res_data['patient_name'] == "Test Name"
     assert "Peanuts" in res_data['allergies']
+    assert res_data['is_verified'] is True
 
 def test_analyze_file_too_large(app, test_client):
     # Temporarily set max length to tiny size

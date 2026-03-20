@@ -1,125 +1,37 @@
 """
-MediBridge Core Application
-Enterprise-grade medical extraction service integrating Google Gemini 2.0 Flash,
-Google Cloud Logging, Google Cloud Storage, and Firebase.
+MediBridge - AI Medical Information Extractor
+A Gemini-powered application for converting unstructured medical inputs into life-saving actions.
 """
 import os
-import json
-import logging
 import uuid
-from typing import Tuple, Dict, Any, Optional
+import logging
+from typing import Tuple, Dict, Any
 
 from flask import Flask, request, jsonify, render_template, Response
 from flask_compress import Compress
 from werkzeug.utils import secure_filename
 from werkzeug.exceptions import RequestEntityTooLarge
-from dotenv import load_dotenv
-
-from google import genai
 from google.genai import types
 
-# Load environment variables
-load_dotenv()
+# Import modular services and models
+from config import Config
+from services.logging_service import LoggingService
+from services.storage_service import StorageService
+from services.gemini_service import GeminiService
+from models.medical_data import MedicalExtraction
 
-# =====================================================================
-# Enterprise Configuration
-# =====================================================================
-class Config:
-    """Application configuration and constants."""
-    PORT: int = int(os.environ.get('PORT', 8080))
-    MAX_CONTENT_LENGTH: int = 10 * 1024 * 1024
-    ALLOWED_EXTENSIONS: set = {'png', 'jpg', 'jpeg', 'webp', 'heic'}
-    GEMINI_API_KEY: Optional[str] = os.environ.get("GEMINI_API_KEY")
+# Initialize structured logging
+LoggingService.initialize()
 
-# =====================================================================
-# Google Cloud Ecosystem Integrations (Services)
-# =====================================================================
-class GoogleServicesManager:
-    """Manages external Google SDK connections securely."""
-    
-    @staticmethod
-    def initialize_cloud_logging() -> None:
-        """Initializes structured logging via Google Cloud Logging."""
-        try:
-            import google.cloud.logging
-            client = google.cloud.logging.Client()
-            client.setup_logging()
-            logging.info("Google Cloud Logging successfully initialized.")
-        except Exception as e:
-            logging.warning(f"Cloud Logging default fallback enabled: {e}")
-
-    @staticmethod
-    def initialize_firebase() -> None:
-        """Initializes Firebase Admin SDK for auth/audit mocking."""
-        try:
-            import firebase_admin
-            if not firebase_admin._apps:
-                firebase_admin.initialize_app()
-            logging.info("Firebase Admin successfully initialized.")
-        except ImportError:
-            logging.warning("Firebase Admin SDK not installed. Skipping setup.")
-
-    @staticmethod
-    def initialize_cloud_storage() -> None:
-        """Initializes Google Cloud Storage SDK."""
-        try:
-            from google.cloud import storage
-            client = storage.Client()
-            logging.info("Google Cloud Storage client initialized.")
-        except Exception as e:
-            logging.warning("Google Cloud Storage skipped for local run.")
-
-# Initialize the ecosystem
-GoogleServicesManager.initialize_cloud_logging()
-GoogleServicesManager.initialize_firebase()
-GoogleServicesManager.initialize_cloud_storage()
-
-
-# =====================================================================
-# Core ML Service Adapter
-# =====================================================================
-class GeminiMedicalExtractor:
-    """Adapter for Google Gemini Flash interactions."""
-    
-    def __init__(self, api_key: Optional[str]):
-        if not api_key:
-            logging.error("CRITICAL: GEMINI_API_KEY is not configured.")
-        self.client = genai.Client(api_key=api_key) if api_key else None
-
-    def analyze_contents(self, contents: list) -> Dict[str, Any]:
-        """Sends sanitized multi-modal data to Gemini for extraction."""
-        if not self.client:
-            raise ValueError("Gemini API key not configured")
-
-        system_instruction = (
-            "You are a highly-secure medical information extraction assistant. "
-            "Analyze the provided inputs and return ONLY valid, strictly-formatted JSON. "
-            "Required keys: patient_name (string), blood_type (string), allergies (array of strings), "
-            "medications (array of objects with 'name' and 'dosage'), conditions (array of strings), "
-            "emergency_actions (array of strings), summary (string). Use null for missing values."
-        )
-
-        response = self.client.models.generate_content(
-            model='gemini-1.5-flash',
-            contents=contents,
-            config=types.GenerateContentConfig(
-                system_instruction=system_instruction,
-                response_mime_type="application/json",
-                temperature=0.1,
-            ),
-        )
-        return json.loads(response.text)
-
-# =====================================================================
-# Application Factory & Routing
-# =====================================================================
 def create_app() -> Flask:
-    """Application factory for secure Flask instantiation."""
+    """Application factory for MediBridge."""
     app = Flask(__name__)
     Compress(app)
     app.config.from_object(Config)
 
-    extractor = GeminiMedicalExtractor(Config.GEMINI_API_KEY)
+    # Initialize Services
+    gemini_service = GeminiService(Config.GEMINI_API_KEY)
+    storage_service = StorageService(Config.GCS_BUCKET_NAME)
 
     def allowed_file(filename: str) -> bool:
         """Validates allowable file extensions."""
@@ -132,7 +44,13 @@ def create_app() -> Flask:
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-        response.headers["Content-Security-Policy"] = "default-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdnjs.cloudflare.com;"
+        # Adjusted CSP for external scripts used in the UI
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self' 'unsafe-inline' "
+            "https://cdn.tailwindcss.com "
+            "https://cdnjs.cloudflare.com "
+            "https://cdn.jsdelivr.net;"
+        )
         return response
 
     @app.route('/')
@@ -141,56 +59,66 @@ def create_app() -> Flask:
 
     @app.route('/health', methods=['GET'])
     def health_check() -> Tuple[Response, int]:
-        services = {"gemini_api": extractor.client is not None}
+        services = {
+            "gemini_api": gemini_service.client is not None,
+            "cloud_storage": storage_service.client is not None,
+            "grounding_enabled": Config.USE_GROUNDING
+        }
         return jsonify({"status": "healthy", "services": services}), 200
 
     @app.route('/analyze', methods=['POST'])
     def analyze() -> Tuple[Response, int]:
+        audit_id = str(uuid.uuid4())
         try:
             text_input = request.form.get('text', '')
             file = request.files.get('file')
             
             if not file and not text_input.strip():
-                return jsonify({"error": "Missing input data"}), 400
+                return jsonify({"error": "No input provided. Please upload an image or enter text."}), 400
 
             contents = []
             
             if file and file.filename != '':
                 secure_name = secure_filename(file.filename)
                 if not allowed_file(secure_name):
-                    return jsonify({"error": "Invalid file type."}), 400
+                    return jsonify({"error": "Invalid file format. Please use images (JPG, PNG, WEBP)."}), 400
                 
-                parts = types.Part.from_bytes(data=file.read(), mime_type=file.mimetype or 'image/jpeg')
+                file_bytes = file.read()
+                mime_type = file.mimetype or 'image/jpeg'
+                
+                # Optional GCS Upload for audit trail/Cloud adoption
+                storage_service.upload_file(file_bytes, f"uploads/{audit_id}_{secure_name}", mime_type)
+                
+                parts = types.Part.from_bytes(data=file_bytes, mime_type=mime_type)
                 contents.append(parts)
                 
             if text_input.strip():
-                contents.append(text_input.strip()[:5000])
+                # Sanitize and limit text input length
+                contents.append(text_input.strip()[:8000])
 
-            result_json = extractor.analyze_contents(contents)
+            # Analyze using Gemini Service with Grounding
+            extraction_result: MedicalExtraction = gemini_service.analyze_medical_contents(
+                contents=contents, 
+                use_grounding=Config.USE_GROUNDING
+            )
             
-            # Output structured success log
-            logging.info(f"Analysis completed. Audit ID: {uuid.uuid4()}")
-            return jsonify(result_json), 200
+            LoggingService.info(f"Medical analysis successful for ID: {audit_id}")
+            return jsonify(extraction_result.model_dump()), 200
             
-        except ValueError as ve:
-            return jsonify({"error": str(ve)}), 500
-        except json.JSONDecodeError as decode_err:
-            logging.error(f"JSON Decode Error: {decode_err}")
-            return jsonify({"error": "Model failed to return valid JSON format."}), 500
         except Exception as e:
-            logging.exception("Analysis Error")
-            return jsonify({"error": "An internal error occurred."}), 500
+            LoggingService.error(f"Analysis Error [ID: {audit_id}]: {str(e)}")
+            return jsonify({"error": "Failed to process medical data. Please try again with clearer input."}), 500
 
-    @app.errorhandler(RequestEntityTooLarge)
+    @app.errorhandler(413)
     def handle_file_too_large(e) -> Tuple[Response, int]:
-        return jsonify({"error": "File exceeds generous 10MB transmission limit."}), 413
+        return jsonify({"error": "File size exceeds the 10MB limit."}), 413
 
     @app.errorhandler(Exception)
     def handle_general_exception(e) -> Tuple[Response, int]:
         if isinstance(e, RequestEntityTooLarge):
             return handle_file_too_large(e)
-        logging.exception(f"Unhandled Exception: {e}")
-        return jsonify({"error": "Secure internal server error."}), 500
+        LoggingService.critical(f"Unhandled Exception: {str(e)}")
+        return jsonify({"error": "A secure internal error occurred."}), 500
 
     return app
 

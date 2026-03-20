@@ -8,3 +8,5 @@ flask-compress
 google-cloud-logging
 firebase-admin
 google-cloud-storage
+pydantic
+google-cloud-aiplatform
